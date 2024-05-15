@@ -1,0 +1,333 @@
+import math
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import cv2
+from scipy import ndimage
+import tkinter as tk
+from tkinter import filedialog
+import ttkbootstrap as ttk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from ttkbootstrap.constants import *
+
+clicked_points = []
+
+
+def choose_Data(directory):
+        os.chdir(directory)
+        files = os.listdir('./')
+        green_data_name = 'data' + (green_combobox.get())
+        red_data_name = 'data' + (red_combobox.get())
+        blue_data_name = 'data' + (blue_combobox.get())
+        data1file = [file for file in files if green_data_name in file and file.endswith('.dat')]
+        data2file = [file for file in files if red_data_name in file and file.endswith('.dat')]
+        data3file = [file for file in files if blue_data_name in file and file.endswith('.dat')]
+        return data1file, data2file, data3file
+
+def deal_Data(loaddata):
+        # load the raw matrix via pandas
+    rawdata = pd.read_csv(loaddata, index_col=False, header=None) .iloc[:,:-1]
+    nprawdata = rawdata.values.astype(np.int64)
+    dealdata = np.delete(nprawdata, [-1,-2], axis=1)
+    dealdata = dealdata[:, :-2]
+    # medianBlurfilter to limte the nosie
+    dealdata = ndimage.median_filter(dealdata, size=3)
+    return dealdata
+
+def auto_normalize(dealdata):
+    normalize_value = dealdata.max()
+    return normalize_value
+
+def gain_normalize(gain_coefficient): 
+    """ normalize_value = 100000 * (10-gain_coefficient**(1/2)) """
+    normalize_value = 100000/((gain_coefficient))
+
+    return normalize_value
+
+def normalize_Data(dealdata, normalize_value):
+        dealdata = np.nan_to_num(dealdata)
+        Tdata = (dealdata / (normalize_value + 1e-9)) * 255
+        Tdata = np.nan_to_num(Tdata)
+        dealdata = Tdata.astype(np.uint8)
+        # Histogram Equalization 
+        clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(32,32))
+        dealdata = clahe.apply(dealdata)
+        if dealdata.max() - dealdata.min() == 0:
+        # if range is zero, set all values to zero
+            resizedata = np.zeros((1000, 1000))
+        else:
+            resizedata = cv2.resize(dealdata, (1000, 1000))
+        return resizedata
+
+def draw_Image(green_channel, red_channel, blue_channel):
+    global canvas1, toolbar, fig, axs
+    combined_image = np.zeros((1000, 1000, 3), dtype=np.uint8 )
+    combined_image[:, :, 2] = red_channel
+    combined_image[:, :, 1] = green_channel
+    combined_image[:, :, 0] = blue_channel
+    redimg = red_channel
+    grnimg = green_channel
+    bludimg = blue_channel
+    mrgimg = cv2.cvtColor(combined_image, cv2.COLOR_BGR2RGB)
+    fig = plt.figure(figsize=(600/100, 600/100), dpi=300)
+    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(8, 8))
+    cmap = 'gray'
+    axs[0, 1].imshow(redimg, cmap=cmap)
+    axs[0, 1].set_title('Red Chanel')
+    axs[0, 0].imshow(grnimg, cmap=cmap)
+    axs[0, 0].set_title('Green Chanel')
+    axs[1, 0].imshow(bludimg, cmap=cmap)
+    axs[1, 0].set_title('Blue Chanel')
+    axs[1, 1].imshow(mrgimg)
+    axs[1, 1].set_title('Merge Chanel')
+
+    if axs[1, 1] is not None:
+        for i, (x, y) in enumerate(clicked_points):
+            axs[1, 1].annotate(str(i + 1), (x, y), textcoords="offset points", xytext=(0, 10), ha='center',color='white', weight='bold', fontsize=14)
+            axs[1, 1].plot(x, y, marker='o', markersize=5, markeredgecolor='white', markerfacecolor='none', markeredgewidth=2)
+
+    axs[1, 1].imshow(mrgimg)
+    axs[1, 1].set_title('Merge Chanel')
+
+    if 'canvas1' in globals():
+        canvas1.get_tk_widget().destroy()
+        for widget in root.winfo_children():
+            if isinstance(widget, FigureCanvasTkAgg) or isinstance(widget, NavigationToolbar2Tk):
+                widget.destroy()
+
+    if 'toolbar' in globals():
+        toolbar.destroy()
+    # Create new canvas
+    canvas1 = FigureCanvasTkAgg(fig, master=main_frame)
+    canvas1.draw()
+    canvas1.get_tk_widget().pack(side=ttk.TOP, fill=ttk.BOTH, expand=0)
+
+    # Connect event handler to canvas
+    canvas1.mpl_connect('button_press_event', on_double_click)
+
+    # Create toolbar
+    toolbar = NavigationToolbar2Tk(canvas1, main_frame)
+    toolbar.update()
+    canvas1.get_tk_widget().pack(side=ttk.TOP, fill=ttk.BOTH, expand=0)
+    # Avoid the blink of polt window
+    plt.close('all')
+
+def on_double_click(event):
+    if event.dblclick:
+        x = int(event.xdata)
+        y = int(event.ydata)
+        clicked_points.append((x, y))
+        draw_Image(green_channel, red_channel, blue_channel)
+        canvas1.draw()
+
+def choose_directory():
+    global directory
+    directory = filedialog.askdirectory()
+    main_program(directory)
+    return directory
+    
+def main_program(directory):
+    global green_channel, red_channel,  blue_channel
+    data1file, data2file, data3file = choose_Data(directory)
+    green_channel = dealdata1_data(data1file) 
+    red_channel = dealdata2_data(data2file)
+    blue_channel = dealdata3_data(data3file)
+    combined_image = draw_Image(green_channel, red_channel,  blue_channel)
+    clear_points()
+    return combined_image
+
+
+def dealdata1_data(data1file):
+    loaddata = data1file[0]
+    dealdata = deal_Data(loaddata)
+    if cb_autogreen.get():
+        normalize_value = auto_normalize(dealdata)
+        autogreen_gain = ((100000/normalize_value))
+        if not math.isinf(autogreen_gain):
+            greenentry_var.set(int(autogreen_gain))
+    else:
+        gain_coefficient = int(greenentry_var.get())
+        normalize_value = gain_normalize(gain_coefficient)
+    resizedata = normalize_Data(dealdata, normalize_value)
+    green_channel = resizedata
+    return green_channel
+    
+
+def dealdata2_data(data2file):
+    loaddata = data2file[0]
+    dealdata = deal_Data(loaddata)
+    if cb_autored.get():
+        normalize_value = auto_normalize(dealdata)
+        autored_gain = ((100000/normalize_value))
+        if not math.isinf(autored_gain):
+            redentry_var.set(int(autored_gain))
+    else:
+        gain_coefficient = int(redentry_var.get())
+        normalize_value = gain_normalize(gain_coefficient)
+    resizedata = normalize_Data(dealdata, normalize_value)
+    red_channel = resizedata
+    return red_channel
+
+def dealdata3_data(data3file):
+    loaddata = data3file[0]
+    dealdata = deal_Data(loaddata)
+    if cb_autoblue.get():
+        normalize_value = auto_normalize(dealdata)
+        if not normalize_value == 0:
+            autoblue_gain = ((100000/normalize_value))
+            blueentry_var.set(int(autoblue_gain))
+    else:
+        gain_coefficient = int(blueentry_var.get())
+        normalize_value = gain_normalize(gain_coefficient)
+    resizedata = normalize_Data(dealdata, normalize_value)
+    blue_channel = resizedata
+    return blue_channel
+
+root = ttk.Window()
+style = ttk.Style("vapor")
+root.title("Imaging")
+root.geometry("1080x900")
+
+def save_img_part():
+    # os.chdir(directory)
+    global red_channel, green_channel, blue_channel
+
+    label_image = np.zeros((1000, 1000, 3), dtype=np.uint8)
+    label_color = (255, 255, 255)  # White color for labels
+
+    for i, (x, y) in enumerate(clicked_points):
+        # Add label number
+        label_text = str(i + 1)
+        label_position = (x, y - 20)  # Adjust the position for the label text
+        cv2.putText(label_image, label_text, label_position, cv2.FONT_HERSHEY_SIMPLEX, 0.6, label_color, 2)
+
+        # Add circular marker
+        marker_radius = 5
+        cv2.circle(label_image, (x, y), marker_radius, label_color, -1)  # -1 fills the circle
+
+    cv2.imwrite('561.tiff', red_channel)
+    cv2.imwrite('488.tiff', green_channel)
+    cv2.imwrite('640.tiff', blue_channel)
+
+    # Combine the channels for the merged image
+    combined_image = np.zeros((1000, 1000, 3), dtype=np.uint8)
+    combined_image[:, :, 2] = red_channel
+    combined_image[:, :, 1] = green_channel
+    combined_image[:, :, 0] = blue_channel
+
+    combined_image = cv2.addWeighted(combined_image, 1, label_image, 1, 0)
+    
+    # Save the merged image
+    cv2.imwrite('Merge.tiff', combined_image)
+
+def update_greenentryvalues(*args):    
+    update_greencheckbox()
+    root.after(2000, lambda: main_program(directory))
+
+def update_redentryvalues(*args):    
+    update_redcheckbox()
+    root.after(2000, lambda: main_program(directory))
+
+def update_blueentryvalues(*args):
+    update_bluecheckbox()
+    root.after(2000, lambda: main_program(directory))
+
+def update_greencheckbox():
+    if greenentry_var.get() :
+        cb_autogreen.set(False)
+    else:
+        cb_autogreen.set(True)
+
+
+def update_redcheckbox():
+    if redentry_var.get() :
+        cb_autored.set(False)
+    else:
+        cb_autored.set(True)
+
+
+def update_bluecheckbox():
+    if blueentry_var.get() :
+        cb_autoblue.set(False)
+    else:
+        cb_autoblue.set(True)
+
+def clear_points():
+    global clicked_points
+    clicked_points = []
+    draw_Image(green_channel, red_channel, blue_channel)
+    canvas1.draw()
+
+
+plt.connect('button_press_event', on_double_click)
+        
+options = ['1', '2', '3']
+
+# create frame for files
+firstline_frame = ttk.Frame(root, width=720, height=80)
+firstline_frame.pack(side=ttk.TOP, fill=ttk.BOTH)
+
+load_button = ttk.Button(firstline_frame, text="Choose the DATA path", command=choose_directory)
+load_button.pack(side=ttk.LEFT)
+
+cb_autogreen = ttk.BooleanVar()
+cb_autogreen.set(True)
+greenautobutton = ttk.Checkbutton(firstline_frame, bootstyle="round-toggle", text="Green Auto", variable=cb_autogreen)
+greenautobutton.pack(side=ttk.LEFT, padx=5)
+
+
+greenentry_var = tk.StringVar()
+greenentry_var.trace('w', update_greenentryvalues)
+greentxt = ttk.Entry(firstline_frame, textvariable=greenentry_var, width=6)
+greentxt.pack(side=ttk.LEFT, padx=5)
+
+green_combobox = ttk.Combobox(firstline_frame, values=options, width=2)
+green_combobox.set(options[0])
+green_combobox.pack(side=ttk.LEFT, padx=5)
+
+
+cb_autored = ttk.BooleanVar()
+cb_autored.set(True)
+redautobutton = ttk.Checkbutton(firstline_frame, bootstyle="round-toggle", text="Red Auto", variable=cb_autored)
+redautobutton.pack(side=ttk.LEFT, padx=5)
+
+
+redentry_var = tk.StringVar()
+redentry_var.trace('w', update_redentryvalues)
+redtxt = ttk.Entry(firstline_frame, textvariable=redentry_var, width=6)
+redtxt.pack(side=ttk.LEFT, padx=5)
+
+red_combobox = ttk.Combobox(firstline_frame, values=options, width=2)
+red_combobox.set(options[1])
+red_combobox.pack(side=ttk.LEFT, padx=5)
+
+cb_autoblue = ttk.BooleanVar()
+cb_autoblue.set(True)
+blueautobutton = ttk.Checkbutton(firstline_frame, bootstyle="round-toggle", text="Blue Auto", variable=cb_autoblue)
+blueautobutton.pack(side=ttk.LEFT, padx=5)
+
+
+blueentry_var = tk.StringVar()
+redentry_var.trace('w', update_blueentryvalues)
+bluetxt = ttk.Entry(firstline_frame, textvariable=blueentry_var, width=6)
+bluetxt.pack(side=ttk.LEFT, padx=5)
+
+blue_combobox = ttk.Combobox(firstline_frame, values=options, width=2)
+blue_combobox.set(options[2])
+blue_combobox.pack(side=ttk.LEFT, padx=5)
+
+Clear_button = ttk.Button(
+firstline_frame,
+command=clear_points, 
+text="Clear Mark").pack(side=LEFT, padx=30, pady=10)
+
+save_button = ttk.Button(
+firstline_frame,
+command=save_img_part, 
+text="Save").pack(side=LEFT, padx=30, pady=10)
+
+main_frame = ttk.Frame(root,width=720, height=720)
+main_frame.pack(side=ttk.TOP, fill=ttk.BOTH)
+
+root.mainloop()
