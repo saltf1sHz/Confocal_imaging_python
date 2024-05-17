@@ -41,7 +41,7 @@ def auto_normalize(dealdata):
 
 def gain_normalize(gain_coefficient): 
     """ normalize_value = 100000 * (10-gain_coefficient**(1/2)) """
-    normalize_value = 100000/((gain_coefficient))
+    normalize_value = 100000/((gain_coefficient/10)**5)
 
     return normalize_value
 
@@ -143,7 +143,7 @@ def dealdata1_data(data1file):
     dealdata = deal_Data(loaddata)
     if cb_autogreen.get():
         normalize_value = auto_normalize(dealdata)
-        autogreen_gain = ((100000/normalize_value))
+        autogreen_gain = (100000/normalize_value)**(1/5))*10
         if not math.isinf(autogreen_gain):
             greenentry_var.set(int(autogreen_gain))
     else:
@@ -159,7 +159,7 @@ def dealdata2_data(data2file):
     dealdata = deal_Data(loaddata)
     if cb_autored.get():
         normalize_value = auto_normalize(dealdata)
-        autored_gain = ((100000/normalize_value))
+        autored_gain = (100000/normalize_value)**(1/5))*10
         if not math.isinf(autored_gain):
             redentry_var.set(int(autored_gain))
     else:
@@ -175,7 +175,7 @@ def dealdata3_data(data3file):
     if cb_autoblue.get():
         normalize_value = auto_normalize(dealdata)
         if not normalize_value == 0:
-            autoblue_gain = ((100000/normalize_value))
+            autoblue_gain = (100000/normalize_value)**(1/5))*10
             blueentry_var.set(int(autoblue_gain))
     else:
         gain_coefficient = int(blueentry_var.get())
